@@ -1936,7 +1936,10 @@ USTATUS FfsParser::parseFileBody(const UModelIndex & index)
             // No need to parse further
             return U_SUCCESS;
         }
-        
+        else if (fileGuid == AMD_COMPRESSED_GUID) {
+            msg(usprintf("%s: AMD compressed section", __FUNCTION__), index);
+            return parseSections(model->body(index), index, true);
+        } 
         return parseRawArea(index);
     }
     
@@ -2070,14 +2073,26 @@ USTATUS FfsParser::parseSections(const UByteArray & sections, const UModelIndex 
                 // Get info
                 UString info = usprintf("Full size: %Xh (%u)", (UINT32)padding.size(), (UINT32)padding.size());
                 
-                // Add tree item
-                UModelIndex dataIndex = model->addItem(headerSize + sectionOffset, Types::Padding, Subtypes::DataPadding, UString("Non-UEFI data"), UString(), info, UByteArray(), padding, UByteArray(), Fixed, index);
-                
-                // Show message
-                msg(usprintf("%s: non-UEFI data found in sections area", __FUNCTION__), dataIndex);
-                
-                // Exit from parsing loop
-                break;
+                UByteArray fileGuid = UByteArray(model->header(model->parent(index)).constData(), sizeof(EFI_GUID));
+                if (fileGuid == AMD_COMPRESSED_GUID) {
+                    // Add tree item
+                    UModelIndex dataIndex = model->addItem(headerSize + sectionOffset, Types::Padding, Subtypes::DataPadding, UString("Decompressed AMD data"), UString(), info, UByteArray(), padding, UByteArray(), Fixed, index);
+
+                    parseRawArea(dataIndex);
+
+                    // Exit from parsing loop
+                    break;
+                }
+                else {
+                    // Add tree item
+                    UModelIndex dataIndex = model->addItem(headerSize + sectionOffset, Types::Padding, Subtypes::DataPadding, UString("Non-UEFI data"), UString(), info, UByteArray(), padding, UByteArray(), Fixed, index);
+                    
+                    // Show message
+                    msg(usprintf("%s: non-UEFI data found in sections area", __FUNCTION__), dataIndex);
+                    
+                    // Exit from parsing loop
+                    break;
+                }
             }
             // Preliminary parsing
             else {
@@ -2378,7 +2393,7 @@ USTATUS FfsParser::parseGuidedSectionHeader(const UByteArray & section, const UI
         }
         // No need to change dataOffset here
     }
-    else if (baGuid == EFI_GUIDED_SECTION_ZLIB_AMD) {
+    else if (baGuid == EFI_GUIDED_SECTION_ZLIB_AMD || baGuid == EFI_GUIDED_SECTION_ZLIB_AMD2) {
         if ((attributes & EFI_GUIDED_SECTION_PROCESSING_REQUIRED) == 0) { // Check that ProcessingRequired attribute is set on compressed GUIDed sections
             msgNoProcessingRequiredAttributeCompressed = true;
         }
@@ -2907,7 +2922,7 @@ USTATUS FfsParser::parseGuidedSectionBody(const UModelIndex & index)
         info += usprintf("\nDecompressed size: %Xh (%u)", (UINT32)processed.size(), (UINT32)processed.size());
     }
     // Zlib compressed section
-    else if (baGuid == EFI_GUIDED_SECTION_ZLIB_AMD) {
+    else if (baGuid == EFI_GUIDED_SECTION_ZLIB_AMD || baGuid == EFI_GUIDED_SECTION_ZLIB_AMD2) {
         USTATUS result = zlibDecompress(model->body(index), processed);
         if (result) {
             msg(usprintf("%s: decompression failed with error ", __FUNCTION__) + errorCodeToUString(result), index);
